@@ -8,6 +8,7 @@ Xuat (cung thu muc voi file nay):
 Muon doi map: sua POS (vi tri ve), EDGES (duong + khoang cach), DEPOT, H.
 """
 import csv
+import heapq
 import math
 import os
 import textwrap
@@ -77,6 +78,35 @@ def shortest_paths():
                     D[i][j] = D[i][k] + D[k][j]
     assert all(D[a][b] < INF for a in NAMES for b in NAMES), "Do thi khong lien thong!"
     return D
+
+
+def street_path(a, b):
+    """Duong di thuc te tren map (qua cac diem trung gian) tu a den b."""
+    adj = {n: {} for n in NAMES}
+    for u, v, w in EDGES:
+        adj[u][v] = adj[v][u] = w
+    dist, prev, pq = {a: 0}, {}, [(0, a)]
+    while pq:
+        d, u = heapq.heappop(pq)
+        if d > dist.get(u, float("inf")):
+            continue
+        for v, w in adj[u].items():
+            if d + w < dist.get(v, float("inf")):
+                dist[v], prev[v] = d + w, u
+                heapq.heappush(pq, (d + w, v))
+    out, cur = [b], b
+    while cur != a:
+        cur = prev[cur]
+        out.append(cur)
+    return out[::-1]
+
+
+def full_route(route):
+    """Noi cac doan (thung -> thung) thanh duong di day du, ke ca cac diem di ngang qua."""
+    out = [route[0]]
+    for a, b in zip(route, route[1:]):
+        out += street_path(a, b)[1:]
+    return out
 
 
 def h(current, unvisited=None, D=None, depot=DEPOT):
