@@ -1,228 +1,611 @@
-"""
-Map thu gom rac (phong cach so do canh co mui ten 2 chieu).
-Xuat (cung thu muc voi file nay):
-  map.png              - ban do (moi diem ghi kem h(n))
-  tables.png           - bang khoang cach ngan nhat + bang h(n)
-  distance_matrix.csv  - ma tran khoang cach
 
-Muon doi map: sua POS (vi tri ve), EDGES (duong + khoang cach), DEPOT, H.
 """
+MAP THU GOM RAC
+
+Chuc nang:
+1. Xay dung ban do va cac diem thu gom.
+2. Tinh khoang cach ngan nhat giua moi cap diem.
+3. Tim duong di thuc te tren ban do.
+4. Tinh Heuristic MST cho GBFS va A*.
+5. Xuat map.png, tables.png va distance_matrix.csv.
+
+Cac file GBFS va A* se import du lieu tu file nay.
+Brute Force chi can su dung ma tran khoang cach D.
+"""
+
 import csv
 import heapq
 import math
 import os
 import textwrap
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 
-# ----------------------------- CONFIG -----------------------------
+
+# ============================================================
+# 1. CONFIGURATION - DU LIEU BAN DO
+# ============================================================
+
 DEPOT = "Hoang Hoa Tham"
 
-# ten diem -> (cot, hang) tren khung ve; hang 0 o tren cung
+# Ten diem -> (cot, hang) tren khung ve
 POS = {
-    "Phan Dinh Phung": (0, 0), "Hoe Nhai": (1, 0), "Quan Thanh": (2, 0), "Thanh Nien": (3, 0),
-    "Hung Vuong": (0, 1), "Hang Than": (1, 1), "Hoang Hoa Tham": (2, 1), "Nui Truc": (3, 1),
-    "Giang Vo": (1, 2), "Ngoc Khanh": (2, 2),
+    "Phan Dinh Phung": (0, 0),
+    "Hoe Nhai": (1, 0),
+    "Quan Thanh": (2, 0),
+    "Thanh Nien": (3, 0),
+
+    "Hung Vuong": (0, 1),
+    "Hang Than": (1, 1),
+    "Hoang Hoa Tham": (2, 1),
+    "Nui Truc": (3, 1),
+
+    "Giang Vo": (1, 2),
+    "Ngoc Khanh": (2, 2),
 }
 
-# duong 2 chieu: (diem 1, diem 2, khoang cach - so nguyen, don vi m)
+
+# Duong hai chieu: (diem 1, diem 2, khoang cach - met)
 EDGES = [
-    ("Phan Dinh Phung", "Hoe Nhai", 18), ("Hoe Nhai", "Quan Thanh", 22), ("Quan Thanh", "Thanh Nien", 15),
-    ("Hung Vuong", "Hang Than", 20), ("Hang Than", "Hoang Hoa Tham", 14), ("Hoang Hoa Tham", "Nui Truc", 18),
+    ("Phan Dinh Phung", "Hoe Nhai", 18),
+    ("Hoe Nhai", "Quan Thanh", 22),
+    ("Quan Thanh", "Thanh Nien", 15),
+
+    ("Hung Vuong", "Hang Than", 20),
+    ("Hang Than", "Hoang Hoa Tham", 14),
+    ("Hoang Hoa Tham", "Nui Truc", 18),
+
     ("Giang Vo", "Ngoc Khanh", 21),
-    ("Phan Dinh Phung", "Hung Vuong", 25), ("Hoe Nhai", "Hang Than", 16), ("Quan Thanh", "Hoang Hoa Tham", 12),
-    ("Thanh Nien", "Nui Truc", 28), ("Hang Than", "Giang Vo", 26), ("Hoang Hoa Tham", "Ngoc Khanh", 24),
-    # duong cheo
-    ("Phan Dinh Phung", "Hang Than", 30), ("Hung Vuong", "Giang Vo", 28), ("Quan Thanh", "Nui Truc", 24),
+
+    ("Phan Dinh Phung", "Hung Vuong", 25),
+    ("Hoe Nhai", "Hang Than", 16),
+    ("Quan Thanh", "Hoang Hoa Tham", 12),
+
+    ("Thanh Nien", "Nui Truc", 28),
+    ("Hang Than", "Giang Vo", 26),
+    ("Hoang Hoa Tham", "Ngoc Khanh", 24),
+
+    # Duong cheo
+    ("Phan Dinh Phung", "Hang Than", 30),
+    ("Hung Vuong", "Giang Vo", 28),
+    ("Quan Thanh", "Nui Truc", 24),
 ]
 
-# h(n): uoc luong chi phi tu diem n ve Depot. Depot = 0, cac diem khac <= 30, khong trung nhau.
-H = {
-    "Hoang Hoa Tham": 0,
-    "Quan Thanh": 10,
-    "Hang Than": 12,
-    "Nui Truc": 16,
-    "Ngoc Khanh": 20,
-    "Thanh Nien": 24,
-    "Phan Dinh Phung": 26,
-    "Hoe Nhai": 27,
-    "Hung Vuong": 29,
-    "Giang Vo": 30,
-}
 
-BASE = os.path.dirname(os.path.abspath(__file__))   # thu muc chua file code
+# Danh sach tat ca cac diem
+NAMES = list(POS)
+
+# Cac diem thu gom rac, khong bao gom Depot
+BINS = [n for n in NAMES if n != DEPOT]
+
+
+# ============================================================
+# 2. OUTPUT FILES
+# ============================================================
+
+BASE = os.path.dirname(os.path.abspath(__file__))
+
 OUT_MAP = os.path.join(BASE, "map.png")
 OUT_TABLES = os.path.join(BASE, "tables.png")
 OUT_CSV = os.path.join(BASE, "distance_matrix.csv")
 
-NODE_COLOR, DEPOT_COLOR = "#87CEEB", "#F4A261"
-SP, R = 3.2, 0.9          # khoang cach giua cac o luoi / ban kinh nut (don vi ve)
-# ------------------------------------------------------------------
 
-NAMES = list(POS)
-BINS = [n for n in NAMES if n != DEPOT]
+# Mau sac va kich thuoc ban do
+NODE_COLOR = "#87CEEB"
+DEPOT_COLOR = "#F4A261"
 
+SP = 3.2
+R = 0.9
+
+
+# ============================================================
+# 3. TINH KHOANG CACH NGAN NHAT
+# ============================================================
 
 def shortest_paths():
-    """Floyd-Warshall: khoang cach ngan nhat (so nguyen) giua moi cap diem."""
-    INF = 10 ** 9
-    D = {a: {b: (0 if a == b else INF) for b in NAMES} for a in NAMES}
+    """
+    Floyd-Warshall:
+    Tinh khoang cach ngan nhat giua moi cap diem.
+
+    Tra ve:
+        D[u][v]: khoang cach ngan nhat tu u den v.
+    """
+
+    INF = float("inf")
+
+    D = {
+        a: {
+            b: (0 if a == b else INF)
+            for b in NAMES
+        }
+        for a in NAMES
+    }
+
+    # Dua cac canh vao ma tran khoang cach
     for a, b, w in EDGES:
-        D[a][b] = D[b][a] = min(D[a][b], w)
+        D[a][b] = min(D[a][b], w)
+        D[b][a] = min(D[b][a], w)
+
+    # Thuat toan Floyd-Warshall
     for k in NAMES:
         for i in NAMES:
             for j in NAMES:
                 if D[i][k] + D[k][j] < D[i][j]:
                     D[i][j] = D[i][k] + D[k][j]
-    assert all(D[a][b] < INF for a in NAMES for b in NAMES), "Do thi khong lien thong!"
+
+    # Kiem tra do thi co lien thong hay khong
+    assert all(
+        D[a][b] != INF
+        for a in NAMES
+        for b in NAMES
+    ), "Do thi khong lien thong!"
+
     return D
 
 
+# ============================================================
+# 4. TIM DUONG DI THUC TE TREN BAN DO
+# ============================================================
+
 def street_path(a, b):
-    """Duong di thuc te tren map (qua cac diem trung gian) tu a den b."""
+    """
+    Tim duong di ngan nhat thuc te tren ban do
+    tu diem a den diem b bang Dijkstra.
+
+    Tra ve danh sach cac node tren duong di.
+    """
+
     adj = {n: {} for n in NAMES}
+
     for u, v, w in EDGES:
-        adj[u][v] = adj[v][u] = w
-    dist, prev, pq = {a: 0}, {}, [(0, a)]
+        adj[u][v] = w
+        adj[v][u] = w
+
+    dist = {a: 0}
+    prev = {}
+
+    pq = [(0, a)]
+
     while pq:
         d, u = heapq.heappop(pq)
+
         if d > dist.get(u, float("inf")):
             continue
+
+        if u == b:
+            break
+
         for v, w in adj[u].items():
-            if d + w < dist.get(v, float("inf")):
-                dist[v], prev[v] = d + w, u
-                heapq.heappush(pq, (d + w, v))
-    out, cur = [b], b
-    while cur != a:
-        cur = prev[cur]
-        out.append(cur)
-    return out[::-1]
+            new_dist = d + w
+
+            if new_dist < dist.get(v, float("inf")):
+                dist[v] = new_dist
+                prev[v] = u
+
+                heapq.heappush(
+                    pq,
+                    (new_dist, v)
+                )
+
+    if b not in dist:
+        raise ValueError(f"Khong co duong di tu {a} den {b}")
+
+    # Truy vet duong di
+    path = [b]
+    current = b
+
+    while current != a:
+        current = prev[current]
+        path.append(current)
+
+    return path[::-1]
 
 
 def full_route(route):
-    """Noi cac doan (thung -> thung) thanh duong di day du, ke ca cac diem di ngang qua."""
-    out = [route[0]]
+    """
+    Noi cac doan duong thanh duong di day du.
+
+    Vi du:
+        [A, C, D]
+
+    Co the duoc mo rong thanh:
+        [A, B, C, D]
+    neu duong ngan nhat tu A den C di qua B.
+    """
+
+    if not route:
+        return []
+
+    result = [route[0]]
+
     for a, b in zip(route, route[1:]):
-        out += street_path(a, b)[1:]
-    return out
+        segment = street_path(a, b)
+        result.extend(segment[1:])
+
+    return result
 
 
-def h(current, unvisited=None, D=None, depot=DEPOT):
-    """h(n) tra ve tu bang H (chi phu thuoc vi tri hien tai; cac tham so con lai
-    giu lai de tuong thich voi gbfs.py). h(Depot) = 0."""
-    return H[current]
+# ============================================================
+# 5. HEURISTIC MST
+# ============================================================
+
+def mst_cost(unvisited, D):
+    """
+    Tinh chi phi Minimum Spanning Tree (MST)
+    tren tap cac diem chua tham.
+
+    Su dung Prim's Algorithm.
+
+    D[u][v] la khoang cach ngan nhat giua hai diem,
+    khong nhat thiet phai la mot canh noi truc tiep.
+    """
+
+    unvisited = list(unvisited)
+
+    if len(unvisited) <= 1:
+        return 0
+
+    # Bat dau tu diem dau tien
+    visited = {unvisited[0]}
+
+    total_cost = 0
+
+    while len(visited) < len(unvisited):
+
+        min_distance = float("inf")
+        next_node = None
+
+        # Tim canh ngan nhat noi tap da chon
+        # voi mot diem chua duoc chon
+        for u in visited:
+            for v in unvisited:
+
+                if v not in visited and D[u][v] < min_distance:
+                    min_distance = D[u][v]
+                    next_node = v
+
+        if next_node is None:
+            raise ValueError("Khong the tinh MST!")
+
+        visited.add(next_node)
+        total_cost += min_distance
+
+    return total_cost
 
 
-def check_h(D):
-    """Kiem tra rang buoc cua de bai va tinh hop le cua h."""
-    assert H[DEPOT] == 0, "h(Depot) phai bang 0"
-    assert set(H) == set(NAMES), "H thieu hoac thua diem"
-    others = [H[n] for n in NAMES if n != DEPOT]
-    assert all(v <= 30 for v in others), "co h(n) > 30"
-    assert len(set(H.values())) == len(H), "co h(n) trung nhau"
-    # admissible: h(n) <= quang duong that ve Depot (nho hon chi phi con lai that)
-    for n in NAMES:
-        assert H[n] <= D[n][DEPOT], f"h({n}) vuot khoang cach that ve Depot"
-    # consistent: |h(u) - h(v)| <= w(u, v) tren moi canh
+def h(current, unvisited, D, depot=DEPOT):
+    """
+    Heuristic MST danh cho GBFS va A*.
+
+    Cong thuc:
+
+    h(s) = d(current, U)
+           + MST(U)
+           + d(U, depot)
+
+    Trong do:
+    - current: vi tri hien tai cua xe.
+    - U: tap cac diem chua duoc thu gom.
+    - D: ma tran khoang cach ngan nhat.
+    - depot: tram tap ket.
+
+    Neu da tham het cac diem:
+        h(s) = khoang cach tu current ve depot.
+    """
+
+    unvisited = set(unvisited)
+
+    # Neu khong con diem nao chua tham
+    if not unvisited:
+        return D[current][depot]
+
+    # Chi phi tu current den diem chua tham gan nhat
+    connect_current = min(
+        D[current][u]
+        for u in unvisited
+    )
+
+    # Chi phi MST noi cac diem chua tham
+    connect_unvisited = mst_cost(unvisited, D)
+
+    # Chi phi tu mot diem chua tham ve Depot
+    connect_depot = min(
+        D[u][depot]
+        for u in unvisited
+    )
+
+    return (
+        connect_current
+        + connect_unvisited
+        + connect_depot
+    )
+
+
+# ============================================================
+# 6. KIEM TRA DU LIEU
+# ============================================================
+
+def check_map(D):
+    """Kiem tra tinh hop le cua du lieu ban do."""
+
+    assert DEPOT in NAMES, "Depot khong ton tai trong ban do!"
+
+    assert len(BINS) == 9, "Ban do phai co 9 diem thu gom!"
+
+    assert len(set(NAMES)) == len(NAMES), "Ten diem bi trung!"
+
     for a, b, w in EDGES:
-        assert abs(H[a] - H[b]) <= w, f"h khong nhat quan tren canh {a}-{b}"
+        assert a in NAMES and b in NAMES
+        assert w > 0, "Khoang cach canh phai lon hon 0!"
 
+        assert D[a][b] == D[b][a], (
+            f"Khoang cach khong doi xung: {a} - {b}"
+        )
+
+    # Kiem tra heuristic voi trang thai ban dau
+    initial_h = h(
+        DEPOT,
+        BINS,
+        D,
+        DEPOT
+    )
+
+    assert initial_h >= 0, "Heuristic khong duoc am!"
+
+    print("Kiem tra ban do: OK")
+    print("So diem thu gom:", len(BINS))
+    print("Depot:", DEPOT)
+    print("Heuristic MST ban dau:", initial_h, "m")
+
+
+# ============================================================
+# 7. TOA DO VE BAN DO
+# ============================================================
 
 def xy(name):
     c, r = POS[name]
     return (c * SP, -r * SP)
 
 
+# ============================================================
+# 8. VE BAN DO
+# ============================================================
+
 def draw_map():
+
     fig, ax = plt.subplots(figsize=(10, 8.2))
+
+    # Ve cac canh va khoang cach
     for a, b, w in EDGES:
-        (x1, y1), (x2, y2) = xy(a), xy(b)
-        dx, dy = x2 - x1, y2 - y1
+
+        (x1, y1) = xy(a)
+        (x2, y2) = xy(b)
+
+        dx = x2 - x1
+        dy = y2 - y1
+
         L = math.hypot(dx, dy)
-        ux, uy = dx / L, dy / L
-        s = (x1 + ux * R, y1 + uy * R)
-        e = (x2 - ux * R, y2 - uy * R)
-        ax.annotate("", xy=e, xytext=s, zorder=1,
-                    arrowprops=dict(arrowstyle="<|-|>", color="gray", lw=1.6,
-                                    mutation_scale=18, shrinkA=0, shrinkB=0))
-        ang = math.degrees(math.atan2(dy, dx))
-        if ang > 90:
-            ang -= 180
-        elif ang <= -90:
-            ang += 180
-        ax.text((x1 + x2) / 2, (y1 + y2) / 2, f"{w}m", rotation=ang, rotation_mode="anchor",
-                ha="center", va="center", fontsize=10, zorder=2,
-                bbox=dict(fc="white", ec="none", pad=1.5))
 
+        ux = dx / L
+        uy = dy / L
+
+        start = (
+            x1 + ux * R,
+            y1 + uy * R
+        )
+
+        end = (
+            x2 - ux * R,
+            y2 - uy * R
+        )
+
+        ax.annotate(
+            "",
+            xy=end,
+            xytext=start,
+            zorder=1,
+            arrowprops=dict(
+                arrowstyle="<|-|>",
+                color="gray",
+                lw=1.6,
+                mutation_scale=18,
+                shrinkA=0,
+                shrinkB=0
+            )
+        )
+
+        angle = math.degrees(math.atan2(dy, dx))
+
+        if angle > 90:
+            angle -= 180
+        elif angle <= -90:
+            angle += 180
+
+        ax.text(
+            (x1 + x2) / 2,
+            (y1 + y2) / 2,
+            f"{w}m",
+            rotation=angle,
+            rotation_mode="anchor",
+            ha="center",
+            va="center",
+            fontsize=10,
+            zorder=2,
+            bbox=dict(
+                fc="white",
+                ec="none",
+                pad=1.5
+            )
+        )
+
+    # Ve cac node
     for n in NAMES:
-        x, y = xy(n)
-        ax.add_patch(Circle((x, y), R, fc=DEPOT_COLOR if n == DEPOT else NODE_COLOR,
-                            ec="none", zorder=3))
-        ax.text(x, y, f"{textwrap.fill(n, 10)}\nh = {H[n]}", ha="center", va="center",
-                fontsize=10, zorder=4, linespacing=1.3)
 
-    ax.scatter([], [], s=200, color=DEPOT_COLOR, label="Depot (tram tap ket)")
-    ax.scatter([], [], s=200, color=NODE_COLOR, label="Thung rac")
-    ax.legend(loc="lower left", frameon=False, fontsize=10)
+        x, y = xy(n)
+
+        ax.add_patch(
+            Circle(
+                (x, y),
+                R,
+                fc=DEPOT_COLOR if n == DEPOT else NODE_COLOR,
+                ec="none",
+                zorder=3
+            )
+        )
+
+        ax.text(
+            x,
+            y,
+            textwrap.fill(n, 10),
+            ha="center",
+            va="center",
+            fontsize=10,
+            zorder=4,
+            linespacing=1.3
+        )
+
+    # Chu thich
+    ax.scatter(
+        [],
+        [],
+        s=200,
+        color=DEPOT_COLOR,
+        label="Depot (tram tap ket)"
+    )
+
+    ax.scatter(
+        [],
+        [],
+        s=200,
+        color=NODE_COLOR,
+        label="Thung rac"
+    )
+
+    ax.legend(
+        loc="lower left",
+        frameon=False,
+        fontsize=10
+    )
+
     ax.set_title("Map", fontsize=14)
+
     ax.set_aspect("equal")
-    ax.set_xlim(-R - 0.6, 3 * SP + R + 0.6)
-    ax.set_ylim(-2 * SP - R - 0.6, R + 0.6)
+
+    ax.set_xlim(
+        -R - 0.6,
+        3 * SP + R + 0.6
+    )
+
+    ax.set_ylim(
+        -2 * SP - R - 0.6,
+        R + 0.6
+    )
+
     ax.axis("off")
-    fig.savefig(OUT_MAP, dpi=160, bbox_inches="tight", facecolor="white")
+
+    fig.savefig(
+        OUT_MAP,
+        dpi=160,
+        bbox_inches="tight",
+        facecolor="white"
+    )
+
     plt.close(fig)
 
 
-def draw_tables(D):
-    wrapped = [textwrap.fill(n, 9) for n in NAMES]
-    fig = plt.figure(figsize=(17, 6.5))
+# ============================================================
+# 9. VE BANG MA TRAN KHOANG CACH
+# ============================================================
 
-    ax1 = fig.add_axes([0.0, 0.02, 0.68, 0.88])
-    ax1.axis("off")
-    ax1.set_title("Khoang cach ngan nhat giua cac diem (m)", fontsize=12)
-    t1 = ax1.table(cellText=[[str(D[a][b]) for b in NAMES] for a in NAMES],
-                   rowLabels=wrapped, colLabels=wrapped, loc="center", cellLoc="center")
-    t1.auto_set_font_size(False)
-    t1.set_fontsize(9)
-    t1.scale(1, 2.0)
-    for (r, c), cell in t1.get_celld().items():
+def draw_tables(D):
+
+    wrapped = [
+        textwrap.fill(n, 9)
+        for n in NAMES
+    ]
+
+    fig = plt.figure(figsize=(14, 7))
+
+    ax = fig.add_axes([0.02, 0.05, 0.96, 0.88])
+    ax.axis("off")
+
+    ax.set_title(
+        "Khoang cach ngan nhat giua cac diem (m)",
+        fontsize=13
+    )
+
+    table = ax.table(
+        cellText=[
+            [str(D[a][b]) for b in NAMES]
+            for a in NAMES
+        ],
+        rowLabels=wrapped,
+        colLabels=wrapped,
+        loc="center",
+        cellLoc="center"
+    )
+
+    table.auto_set_font_size(False)
+    table.set_fontsize(9)
+    table.scale(1, 2.0)
+
+    for (r, c), cell in table.get_celld().items():
+
         if r == 0 or c == -1:
             cell.set_facecolor("#eef3f7")
 
-    ax2 = fig.add_axes([0.70, 0.02, 0.29, 0.88])
-    ax2.axis("off")
-    ax2.set_title("Bang h(n)", fontsize=12)
-    rows = [[n + (" (Depot)" if n == DEPOT else ""), str(H[n]), str(D[n][DEPOT])]
-            for n in NAMES]
-    t2 = ax2.table(cellText=rows, colLabels=["Diem", "h(n)", "Khoang cach\nthat ve Depot"],
-                   loc="center", cellLoc="center")
-    t2.auto_set_font_size(False)
-    t2.set_fontsize(10)
-    t2.scale(1, 1.9)
-    t2.auto_set_column_width([0, 1, 2])
-    for (r, c), cell in t2.get_celld().items():
-        if r == 0:
-            cell.set_facecolor("#eef3f7")
+    fig.savefig(
+        OUT_TABLES,
+        dpi=160,
+        bbox_inches="tight",
+        facecolor="white"
+    )
 
-    fig.savefig(OUT_TABLES, dpi=160, bbox_inches="tight", facecolor="white")
     plt.close(fig)
 
 
+# ============================================================
+# 10. MAIN
+# ============================================================
+
 def main():
+
+    # Tinh ma tran khoang cach
     D = shortest_paths()
-    check_h(D)
-    with open(OUT_CSV, "w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow([""] + NAMES)
+
+    # Kiem tra du lieu
+    check_map(D)
+
+    # Xuat ma tran khoang cach ra CSV
+    with open(OUT_CSV, "w", newline="", encoding="utf-8-sig") as f:
+
+        writer = csv.writer(f)
+
+        writer.writerow([""] + NAMES)
+
         for a in NAMES:
-            w.writerow([a] + [D[a][b] for b in NAMES])
+            writer.writerow(
+                [a] + [D[a][b] for b in NAMES]
+            )
+
+    # Ve ban do
     draw_map()
+
+    # Ve bang khoang cach
     draw_tables(D)
-    print("Da luu:", OUT_MAP, OUT_TABLES, OUT_CSV)
-    print("Kiem tra h(n): h(Depot)=0, cac diem khac <= 30, khong trung, admissible, nhat quan: OK")
+
+    print("\nDa tao cac file:")
+
+    print("Map:", OUT_MAP)
+    print("Tables:", OUT_TABLES)
+    print("Distance matrix:", OUT_CSV)
+
+    print("\nHeuristic MST da san sang cho GBFS va A*.")
 
 
 if __name__ == "__main__":
     main()
+
