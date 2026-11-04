@@ -1,0 +1,111 @@
+"""
+Tinh loi giai TOI UU THAT cho bai toan thu gom rac bang vet can.
+
+- Vet can: thu moi hoan vi cua cac thung (n! hoan vi), chon hanh trinh ngan nhat
+  Depot -> thung -> ... -> thung -> Depot.
+- Held-Karp (quy hoach dong theo tap con, O(n^2 * 2^n)): dung de kiem tra cheo,
+  hai cach phai ra cung mot so.
+
+Dat cung thu muc voi build_map.py va gbfs.py. Chay: python brute_force.py
+"""
+import heapq
+import itertools
+import time
+
+from build_map import DEPOT, BINS, NAMES, EDGES, shortest_paths
+
+
+def street_path(a, b):
+    """Duong di thuc te tren map (qua cac diem trung gian) tu a den b."""
+    adj = {n: {} for n in NAMES}
+    for u, v, w in EDGES:
+        adj[u][v] = adj[v][u] = w
+    dist, prev, pq = {a: 0}, {}, [(0, a)]
+    while pq:
+        d, u = heapq.heappop(pq)
+        if d > dist.get(u, float("inf")):
+            continue
+        for v, w in adj[u].items():
+            if d + w < dist.get(v, float("inf")):
+                dist[v], prev[v] = d + w, u
+                heapq.heappush(pq, (d + w, v))
+    out, cur = [b], b
+    while cur != a:
+        cur = prev[cur]
+        out.append(cur)
+    return out[::-1]
+
+
+def full_route(route):
+    """Noi cac doan thanh duong di day du (ke ca diem di ngang qua)."""
+    out = [route[0]]
+    for a, b in zip(route, route[1:]):
+        out += street_path(a, b)[1:]
+    return out
+
+
+def tour_cost(D, perm):
+    cost = D[DEPOT][perm[0]]
+    for a, b in zip(perm, perm[1:]):
+        cost += D[a][b]
+    return cost + D[perm[-1]][DEPOT]
+
+
+def brute_force(D):
+    best, best_perm, n_best, count = float("inf"), None, 0, 0
+    for perm in itertools.permutations(BINS):
+        count += 1
+        c = tour_cost(D, perm)
+        if c < best:
+            best, best_perm, n_best = c, perm, 1
+        elif c == best:
+            n_best += 1
+    return [DEPOT, *best_perm, DEPOT], best, count, n_best
+
+
+def held_karp(D):
+    n = len(BINS)
+    INF = float("inf")
+    dp = [[INF] * n for _ in range(1 << n)]
+    for j, b in enumerate(BINS):
+        dp[1 << j][j] = D[DEPOT][b]
+    for mask in range(1 << n):
+        for j in range(n):
+            if dp[mask][j] == INF or not (mask >> j) & 1:
+                continue
+            for k in range(n):
+                if (mask >> k) & 1:
+                    continue
+                nm = mask | (1 << k)
+                c = dp[mask][j] + D[BINS[j]][BINS[k]]
+                if c < dp[nm][k]:
+                    dp[nm][k] = c
+    full = (1 << n) - 1
+    return min(dp[full][j] + D[BINS[j]][DEPOT] for j in range(n))
+
+
+def main():
+    D = shortest_paths()
+
+    t0 = time.perf_counter()
+    route, best, count, n_best = brute_force(D)
+    t_bf = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    hk = held_karp(D)
+    t_hk = time.perf_counter() - t0
+
+    print("=== VET CAN (toi uu that) ===")
+    print("Thu tu thu gom :", " -> ".join(route))
+    print("Duong di day du:", " -> ".join(full_route(route)))
+    print("Tong quang duong:", best, "m")
+    print(f"So hoan vi da thu: {count:,}  (= {len(BINS)}!)")
+    print(f"So hoan vi dat toi uu: {n_best}  (gom ca chieu nguoc lai)")
+    print(f"Thoi gian vet can: {t_bf:.2f} s")
+    print()
+    print(f"Kiem tra Held-Karp: {hk} m ({t_hk:.3f} s) ->",
+          "KHOP" if hk == best else "KHONG KHOP, kiem tra lai code!")
+
+
+if __name__ == "__main__":
+    main()
