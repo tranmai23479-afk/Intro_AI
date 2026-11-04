@@ -1,0 +1,110 @@
+"""
+A* cho bai toan thu gom rac, chay tren map trong build_map.py
+
+Trang thai : (vi tri hien tai, tap thung da tham)
+Trang thai dau : (Depot, {})
+Dich       : da tham du moi thung va quay ve Depot
+Hanh dong  : di toi 1 thung chua tham (chi phi = khoang cach ngan nhat D);
+             khi het thung thi quay ve Depot
+A* chon trang thai co f(n) = g(n) + h(n) nho nhat.
+h(n) dung chung voi GBFS: bang H trong build_map.py (Depot = 0, cac diem khac <= 30).
+
+Cung quy tac hoa voi gbfs.py: khi f bang nhau thi lay trang thai duoc sinh ra truoc,
+cac thung duoc duyet theo thu tu co dinh cua BINS.
+
+Tinh toi uu: h(n) <= khoang cach that ve Depot <= chi phi con lai that (admissible),
+va |h(u) - h(v)| <= D[u][v] (nhat quan, build_map.check_h da kiem tra), nen trang thai
+nao da duoc lay ra khoi hang doi thi g cua no la nho nhat -> dung closed set la dung.
+"""
+import heapq
+import itertools
+import time
+
+from build_map import DEPOT, BINS, shortest_paths, h, full_route
+
+
+def astar(D, depot=DEPOT, bins=BINS, log=None):
+    """
+    Tra ve dict: route, distance, expanded, generated, time_ms.
+    Neu truyen log (list) thi moi lan mo rong trang thai se ghi 1 dong
+    (dung de lam animation sau nay).
+    """
+    all_bins = frozenset(bins)
+    start = (depot, frozenset())
+    counter = itertools.count()
+
+    t0 = time.perf_counter()
+    h0 = h(depot, list(all_bins), D, depot)
+    pq = [(0 + h0, next(counter), start, 0, [depot])]   # (f, thu tu, trang thai, g, duong di)
+    best_g = {start: 0}          # g nho nhat da biet cua tung trang thai
+    closed = set()
+    expanded = 0
+    generated = 1
+
+    while pq:
+        f, _, state, g, path = heapq.heappop(pq)
+        if state in closed:
+            continue
+        closed.add(state)
+        expanded += 1
+        cur, visited = state
+
+        if log is not None:
+            hval = h(cur, list(all_bins - visited), D, depot)
+            log.append({"step": expanded, "current": cur, "visited": sorted(visited),
+                        "g": g, "h": hval, "f": f, "frontier": len(pq)})
+
+        # kiem tra dich khi LAY RA khoi hang doi (can thiet de A* toi uu)
+        if visited == all_bins and cur == depot:
+            return {"route": path, "distance": g, "expanded": expanded,
+                    "generated": generated,
+                    "time_ms": (time.perf_counter() - t0) * 1000}
+
+        unvisited = all_bins - visited
+        if unvisited:
+            successors = [(b, (b, visited | {b})) for b in bins if b in unvisited]
+        else:
+            successors = [(depot, (depot, visited))]       # buoc cuoi: ve Depot
+
+        for nxt, nstate in successors:
+            if nstate in closed:
+                continue
+            ng = g + D[cur][nxt]
+            if ng >= best_g.get(nstate, float("inf")):     # da co duong toi nstate tot hon
+                continue
+            best_g[nstate] = ng
+            nh = h(nxt, list(all_bins - nstate[1]), D, depot)
+            heapq.heappush(pq, (ng + nh, next(counter), nstate, ng, path + [nxt]))
+            generated += 1
+
+    return None
+
+
+def print_result(res, D):
+    print("Lo trinh A*:")
+    r = res["route"]
+    for a, b in zip(r, r[1:]):
+        print(f"  {a:16s} -> {b:16s} {D[a][b]:>3d}m")
+    print("Duong di day du (ke ca diem di ngang qua):")
+    print("  " + " -> ".join(full_route(r)))
+    print(f"Tong quang duong : {res['distance']} m")
+    print(f"So trang thai mo rong : {res['expanded']}  (sinh ra: {res['generated']})")
+    print(f"Thoi gian : {res['time_ms']:.3f} ms")
+
+
+if __name__ == "__main__":
+    from brute_force import held_karp       # dung de kiem tra A* co toi uu khong
+
+    D = shortest_paths()
+    log = []
+    res = astar(D, log=log)
+    print_result(res, D)
+
+    opt = held_karp(D)
+    print(f"\nKiem tra voi Held-Karp: toi uu = {opt} m ->",
+          "KHOP (A* toi uu)" if res["distance"] == opt else "KHONG KHOP, kiem tra lai code!")
+
+    print("\nNhat ky 8 buoc dau (step, vi tri, g, h, f, frontier):")
+    for e in log[:8]:
+        print(f"  {e['step']:>2d}  {e['current']:16s} g={e['g']:<4} h={e['h']:<3} "
+              f"f={e['f']:<4} frontier={e['frontier']}")
