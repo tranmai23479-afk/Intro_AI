@@ -8,40 +8,10 @@ Tinh loi giai TOI UU THAT cho bai toan thu gom rac bang vet can.
 
 Dat cung thu muc voi build_map.py va gbfs.py. Chay: python brute_force.py
 """
-import heapq
 import itertools
 import time
 
-from build_map import DEPOT, BINS, NAMES, EDGES, shortest_paths
-
-
-def street_path(a, b):
-    """Duong di thuc te tren map (qua cac diem trung gian) tu a den b."""
-    adj = {n: {} for n in NAMES}
-    for u, v, w in EDGES:
-        adj[u][v] = adj[v][u] = w
-    dist, prev, pq = {a: 0}, {}, [(0, a)]
-    while pq:
-        d, u = heapq.heappop(pq)
-        if d > dist.get(u, float("inf")):
-            continue
-        for v, w in adj[u].items():
-            if d + w < dist.get(v, float("inf")):
-                dist[v], prev[v] = d + w, u
-                heapq.heappush(pq, (d + w, v))
-    out, cur = [b], b
-    while cur != a:
-        cur = prev[cur]
-        out.append(cur)
-    return out[::-1]
-
-
-def full_route(route):
-    """Noi cac doan thanh duong di day du (ke ca diem di ngang qua)."""
-    out = [route[0]]
-    for a, b in zip(route, route[1:]):
-        out += street_path(a, b)[1:]
-    return out
+from build_map import DEPOT, BINS, shortest_paths, full_route
 
 
 def tour_cost(D, perm):
