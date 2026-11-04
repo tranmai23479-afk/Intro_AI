@@ -1,90 +1,179 @@
-"""
-Greedy Best-First Search (GBFS) cho bai toan thu gom rac, chay tren map trong build_map.py
 
-Trang thai : (vi tri hien tai, tap thung da tham)
-Trang thai dau : (Depot, {})
-Dich       : da tham du moi thung va quay ve Depot
-Hanh dong  : di toi 1 thung chua tham (chi phi = khoang cach ngan nhat D);
-             khi het thung thi quay ve Depot
-GBFS chon trang thai co f(n) = h(n) nho nhat, KHONG xet g(n).
-h(n) dung chung voi A*: min(khoang cach ve Depot, 30), Depot = 0 (xem build_map.h).
 """
+Greedy Best-First Search (GBFS) cho bai toan thu gom rac.
+
+Trang thai: (vi tri hien tai, tap diem thu gom da thu gom)
+Trang thai dau: (Depot, {})
+Dich: da thu gom tat ca cac diem va quay ve Depot.
+
+GBFS uu tien trang thai co h(n) nho nhat, khong cong g(n) vao
+gia tri uu tien.
+
+Quy uoc:
+- Di chuyen giua hai diem theo duong ngan nhat trong D.
+- Neu duong di ngang qua diem thu gom khac, diem do cung duoc
+  tinh la da thu gom.
+- Khi tat ca diem da duoc thu gom, xe quay ve Depot.
+"""
+
 import heapq
 import itertools
 import time
 
-from build_map import DEPOT, BINS, shortest_paths, h
+from build_map import (
+    DEPOT,
+    BINS,
+    shortest_paths,
+    h,
+    full_route,
+    street_path,
+)
+
+
+def bins_on_path(path, bins):
+    """Tra ve cac diem thu gom xuat hien tren duong di."""
+    return frozenset(node for node in path if node in bins)
 
 
 def gbfs(D, depot=DEPOT, bins=BINS, log=None):
     """
-    Tra ve dict: route, distance, expanded, generated, time_ms.
-    Neu truyen log (list) thi moi lan mo rong trang thai se ghi 1 dong
-    (dung de lam animation sau nay).
+    Tra ve dict gom:
+    route, distance, expanded, generated, time_ms.
+
+    route la danh sach cac diem dich duoc chon.
+    full_route(route) se mo rong thanh duong di day du tren ban do.
     """
     all_bins = frozenset(bins)
     start = (depot, frozenset())
-    counter = itertools.count()          # tie-break on dinh, tranh so sanh tuple khac kieu
 
+    counter = itertools.count()
     t0 = time.perf_counter()
-    h0 = h(depot, list(all_bins), D, depot)
-    pq = [(h0, next(counter), start, 0, [depot])]   # (h, thu tu, trang thai, g, duong di)
+
+    h0 = h(depot, all_bins, D, depot)
+
+    # Phan tu: (h, thu tu sinh, state, g, route)
+    pq = [(h0, next(counter), start, 0, [depot])]
+
+    best_g = {start: 0}
     closed = set()
+
     expanded = 0
     generated = 1
 
     while pq:
-        hval, _, state, g, path = heapq.heappop(pq)
+        hval, _, state, g, route = heapq.heappop(pq)
+
         if state in closed:
             continue
+
         closed.add(state)
         expanded += 1
-        cur, visited = state
+
+        current, visited = state
 
         if log is not None:
-            log.append({"step": expanded, "current": cur, "visited": sorted(visited),
-                        "h": hval, "g": g, "frontier": len(pq)})
+            log.append({
+                "step": expanded,
+                "current": current,
+                "visited": sorted(visited),
+                "g": g,
+                "h": hval,
+                "frontier": len(pq),
+            })
 
-        # kiem tra dich: da tham het va dang o Depot (sau khi quay ve)
-        if visited == all_bins and cur == depot:
-            return {"route": path, "distance": g, "expanded": expanded,
-                    "generated": generated,
-                    "time_ms": (time.perf_counter() - t0) * 1000}
+        # Muc tieu: da thu gom tat ca va quay ve Depot
+        if visited == all_bins and current == depot:
+            return {
+                "route": route,
+                "distance": g,
+                "expanded": expanded,
+                "generated": generated,
+                "time_ms": (time.perf_counter() - t0) * 1000,
+            }
 
         unvisited = all_bins - visited
-        if unvisited:
-            # duyet theo thu tu co dinh cua BINS (khong duyet truc tiep set) de khi
-            # nhieu trang thai bang h thi ket qua van nhu nhau o moi lan chay
-            successors = [(b, (b, visited | {b})) for b in bins if b in unvisited]
-        else:
-            successors = [(depot, (depot, visited))]       # buoc cuoi: ve Depot
 
-        for nxt, nstate in successors:
-            if nstate in closed:
+        if unvisited:
+            # Xet cac diem chua thu gom theo thu tu BINS
+            candidates = [b for b in bins if b in unvisited]
+        else:
+            # Da thu gom het: quay ve Depot
+            candidates = [depot]
+
+        for nxt in candidates:
+            # Duong di ngan nhat tren do thi
+            segment = street_path(current, nxt)
+            step_cost = D[current][nxt]
+            new_g = g + step_cost
+
+            # Cap nhat cac diem thu gom da di qua tren duong
+            newly_visited = bins_on_path(segment, all_bins)
+            new_visited = visited | newly_visited
+
+            new_state = (nxt, new_visited)
+
+            if new_state in closed:
                 continue
-            ng = g + D[cur][nxt]
-            nh = h(nxt, list(all_bins - nstate[1]), D, depot)
-            heapq.heappush(pq, (nh, next(counter), nstate, ng, path + [nxt]))
+
+            if new_g >= best_g.get(new_state, float("inf")):
+                continue
+
+            best_g[new_state] = new_g
+
+            remaining = all_bins - new_visited
+            new_h = h(nxt, remaining, D, depot)
+
+            heapq.heappush(
+                pq,
+                (
+                    new_h,
+                    next(counter),
+                    new_state,
+                    new_g,
+                    route + [nxt],
+                ),
+            )
             generated += 1
 
     return None
 
 
-def print_result(res, D):
-    print("Lo trinh GBFS:")
-    r = res["route"]
-    for a, b in zip(r, r[1:]):
-        print(f"  {a:16s} -> {b:16s} {D[a][b]:>3d}m")
-    print(f"Tong quang duong : {res['distance']} m")
-    print(f"So trang thai mo rong : {res['expanded']}  (sinh ra: {res['generated']})")
-    print(f"Thoi gian : {res['time_ms']:.3f} ms")
+def print_result(result, D):
+    if result is None:
+        print("Khong tim thay lo trinh.")
+        return
+
+    route = result["route"]
+
+    print("\n========== KET QUA GBFS ==========")
+    print("Cac diem dich duoc chon:")
+
+    for a, b in zip(route, route[1:]):
+        print(f"  {a:18s} -> {b:18s} {D[a][b]:>3} m")
+
+    print("\nDuong di day du (bao gom cac diem di ngang qua):")
+    print("  " + " -> ".join(full_route(route)))
+
+    print(f"\nTong quang duong : {result['distance']} m")
+    print(f"So trang thai mo rong : {result['expanded']}")
+    print(f"So trang thai da sinh : {result['generated']}")
+    print(f"Thoi gian chay : {result['time_ms']:.3f} ms")
 
 
 if __name__ == "__main__":
     D = shortest_paths()
+
     log = []
-    res = gbfs(D, log=log)
-    print_result(res, D)
-    print("\nNhat ky 5 buoc dau (step, vi tri, h, g, frontier):")
-    for e in log[:5]:
-        print(f"  {e['step']:>2d}  {e['current']:16s} h={e['h']:<4} g={e['g']:<4} frontier={e['frontier']}")
+    result = gbfs(D, log=log)
+
+    print_result(result, D)
+
+    print("\nNhat ky 5 trang thai dau:")
+    for item in log[:5]:
+        print(
+            f"  Step {item['step']:>2}: "
+            f"{item['current']:18s} "
+            f"g={item['g']:<4} "
+            f"h={item['h']:<4} "
+            f"frontier={item['frontier']}"
+        )
