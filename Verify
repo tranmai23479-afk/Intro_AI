@@ -1,0 +1,67 @@
+"""
+verify.py: check that the code reproduces the numbers reported in the slides.
+
+Run:  python verify.py
+
+Prints OK or WRONG for every check and exits with code 0 only if all checks pass.
+Running time is NOT checked, because it depends on the machine.
+
+No random numbers are used anywhere in this project. Ties are broken by a fixed
+bin order and an insertion counter, so every run gives identical results.
+"""
+import sys
+
+from build_map import BINS, DEPOT, h, shortest_paths
+from gbfs import gbfs
+from astar import astar
+from brute_force import brute_force, held_karp
+
+# Numbers reported in the slides
+EXPECTED = {
+    "h(start)": 186,
+    "GBFS distance": 252,
+    "GBFS expanded states": 7,
+    "GBFS generated states": 28,
+    "A* distance": 217,
+    "A* expanded states": 63,
+    "A* generated states": 208,
+    "Brute force distance": 217,
+    "Brute force permutations": 362880,
+    "Held-Karp distance": 217,
+}
+
+
+def main():
+    D = shortest_paths()
+    g = gbfs(D)
+    a = astar(D)
+    _, bf_best, bf_count, _ = brute_force(D)
+
+    actual = {
+        "h(start)": h(DEPOT, BINS, D, DEPOT),
+        "GBFS distance": g["distance"],
+        "GBFS expanded states": g["expanded"],
+        "GBFS generated states": g["generated"],
+        "A* distance": a["distance"],
+        "A* expanded states": a["expanded"],
+        "A* generated states": a["generated"],
+        "Brute force distance": bf_best,
+        "Brute force permutations": bf_count,
+        "Held-Karp distance": held_karp(D),
+    }
+
+    ok_all = True
+    print(f"{'Check':28s} {'Expected':>10s} {'Got':>10s}  Result")
+    for name, expected in EXPECTED.items():
+        got = actual[name]
+        ok = got == expected
+        ok_all = ok_all and ok
+        print(f"{name:28s} {expected:>10} {got:>10}  {'OK' if ok else 'WRONG'}")
+
+    print()
+    print("ALL CHECKS PASSED" if ok_all else "SOME CHECKS FAILED: results differ from the slides")
+    return 0 if ok_all else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
